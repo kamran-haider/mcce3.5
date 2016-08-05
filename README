@@ -1,7 +1,0 @@
-Update log
-------------------------------------------------------------------------
-July 2016
-------------------------------------------------------------------------
-- Removed PASCAL COMTE GENETIC ALGORITHM from this version
-+ Yifan's monte carlo no longer needs step3_out.pdb directory (fixed)
-
