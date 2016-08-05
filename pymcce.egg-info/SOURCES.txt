@@ -1,0 +1,10 @@
+README
+pymcce.c
+setup.py
+lib/mcce.a
+lib/mcce.h
+pymcce.egg-info/PKG-INFO
+pymcce.egg-info/SOURCES.txt
+pymcce.egg-info/dependency_links.txt
+pymcce.egg-info/not-zip-safe
+pymcce.egg-info/top_level.txt
