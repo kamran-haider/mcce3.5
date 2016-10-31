@@ -4,7 +4,7 @@
 
 void welcome();
 #define LEN 150
-////  THIS IS MY NEW COMMENT LINE
+
 int main(int argc, char *argv[])
 {
    /* Welcome */
@@ -51,18 +51,24 @@ int main(int argc, char *argv[])
 
    /* Do step 4. Monte Carlo */
    if (env.do_monte) {
-      printf("Step 4. Monte Carlo Sampling\n"); fflush(stdout);
       if (!env.monte_adv_opt) {
+      printf("Step 4. Standard Monte Carlo Sampling\n"); fflush(stdout);
       if (monte()) {db_close(); return USERERR;}
            else printf("Step 4 Done.\n\n");
-       }
+      }
        else {
-           if (monte2()) {db_close(); return USERERR;}
-           else printf("Step 4 Done.\n\n");
+         printf("Step 4. Yifan Monte Carlo Sampling\n"); fflush(stdout);
+         if (monte2()) {db_close(); return USERERR;}
+         else printf("Step 4 Done.\n\n");
        }
    }
    else printf("Not doing \"Step 4. Monte Carlo Sampling\"\n\n");
-
+   
+   if (env.do_postmcce){
+      printf("Step 5. Post Monte Carlo\n"); fflush(stdout);
+      if (postrun()) {db_close(); return USERERR;}
+      else printf("Step 5 Done.\n\n");
+   }
 
    db_close();
    return 0;
@@ -70,13 +76,11 @@ int main(int argc, char *argv[])
 
 void welcome()
 { 
-   printf("Aug 2016:marilyn was here\n");
    printf(" _________________________MCCE 3.5____________________________\n");
    printf("|	   						      |\n");
    printf("|    MCCE (Multi-Conformation Continuum Electrostatics)       |\n");
    printf("|	is a program developed at Marilyn Gunner's lab.	      |\n");
    printf("|	MCCE is a biophysics simulation program combining     |\n");
-   printf("|    I'm Manoj      |\n");
    printf("|	continuum electrostatics and molecular mechanics.     |\n");
    printf("|	In this program, the protein side chain motions are   |\n");
    printf("|	simulated explicitly while the dielectric effect of   |\n");
@@ -104,10 +108,12 @@ void welcome()
    printf("Last Updates:                                              \n");
    printf("July 2016, Yifan's monte carlo no longer needs step3_out.pdb directory (fixed)\n");
    printf("July 2016, Removed PASCAL COMTE GENETIC ALGORITHM from this version\n");
-   
-   printf("August 2016 Witek\n");
+   printf("Sept 2016, Added charged ligands to sum_crg.out.\n");
+   printf("Oct  2016, Changed Yifan MC pK.out output format to match mfe format.\n");
+   printf("Oct  2016, Added step 5 that creates pK.out and sum_crg.out.\n");
    fflush(stdout);
-
+	
+	// Added by Jessica on Nov. 2015
    char buf[LEN];
    time_t curtime;
    struct tm *loc_time;

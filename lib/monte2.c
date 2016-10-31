@@ -16,7 +16,7 @@ int  monte2_check_toggle(PROT prot);
 void zero_counters(PROT *prot_p);
 void do_free_energy(PROT *prot_p);
 double free_unf(PROT prot);
-int curve_fitting(PROT prot);
+int curve_fitting(PROT prot, int n_titra);
 int monte_out(PROT prot, int n_titra);
 int   load1_pairwise();
 void ENTROPY_CORRECTION_FUNCTION(PROT *prot);
@@ -26,9 +26,10 @@ GROUP     **flip_group;
 long    idum;
 double  beta;
 ISTATES *TheArray;
-int monte2() {
+char **shead2;
 
-// printf("monte2 I added the entropy correction function\n");
+int monte2() {
+    // printf("monte2 I added the entropy correction function\n");
     PROT prot, prot_w, prot_red;
     int i_titra;
     float ph, eh, titr_pnt, temp, free_eng;
@@ -88,7 +89,6 @@ int monte2() {
     /* pH/Eh titration */
     for (i_titra=0;i_titra<env.titr_steps;i_titra++) {
         timer_start = time(NULL);
-        
         ph = env.titr_ph0;
         eh = env.titr_eh0;
         if (env.titr_type == 'p') ph = env.titr_ph0 + ((float)i_titra)*env.titr_phd;
@@ -173,12 +173,10 @@ int monte2() {
             if (env.anneal_nstep) beta = KCAL2KT/(env.anneal_temp_start/ROOMT);
             else beta = KCAL2KT/(env.monte_temp/ROOMT);
             fp = fopen(MC_OUT,"a"); fprintf(fp,"Equilibrating:   %5d cycle(s) at temperature = %10.2fK\n",n_cycle,env.anneal_temp_start); fclose(fp);
-           // printf("%d",n_cycle);
+            // printf("%d",n_cycle);
             for (i_cycle=0;i_cycle<n_cycle;i_cycle++) {
                 monte2_mc(&prot_red);
-            //    if(i_red==0)//my code start here
-                  
-
+                //if(i_red==0)//my code start here
             }
             /* Set zero */
             zero_counters(&prot_red);
@@ -189,14 +187,11 @@ int monte2() {
                 temp = env.anneal_temp_start + ((float)(i_step+1)/(float) env.anneal_nstep) * (env.monte_temp - env.anneal_temp_start);
                 beta = KCAL2KT/(temp/ROOMT);
                 fp = fopen(MC_OUT,"a"); fprintf(fp,"Annealling:      %5d cycle(s) at temperature = %10.2fK\n",n_cycle,temp); fclose(fp);
-                for (i_cycle=0;i_cycle<n_cycle;i_cycle++) {
+                for (i_cycle=0;i_cycle<n_cycle;i_cycle++)                 {
                     monte2_mc(&prot_red);
-ENTROPY_CORRECTION_FUNCTION(&prot_red);
-
+                    ENTROPY_CORRECTION_FUNCTION(&prot_red);
                 }
             }
-            // if(i_red==0)
-            
             zero_counters(&prot_red);
             
             /* Data */
@@ -213,22 +208,20 @@ ENTROPY_CORRECTION_FUNCTION(&prot_red);
             i_cycle = 0;
             while (1) {
                 if (i_cycle >= n_cycle_min) 
-{
+                {
                     if (n_cycle_max != -1) {
                         if (i_cycle >= n_cycle_max) break;
                     }
                     if (!fmod(i_cycle,n_cycle_chk)) {
 
-for(r1=0;r1<prot_red.n_res;r1++)
-for(r2=0;r2<prot_red.res[r1].num_of_states;r2++)
-prot_red.res[r1].IS[r2].totalOCC=0;
-                        for (ic=0;ic<prot_red.nc;ic++) {
-
-                            prot_red.conf[ic]->occ_old = prot_red.conf[ic]->occ;
-                            prot_red.conf[ic]->occ = (float) prot_red.conf[ic]->counter_accept / (float) (i_cycle * env.monte_niter_cycle);
-
-
-                        } 
+                    for(r1=0;r1<prot_red.n_res;r1++)
+                    for(r2=0;r2<prot_red.res[r1].num_of_states;r2++)
+                    prot_red.res[r1].IS[r2].totalOCC=0;
+                    for (ic=0;ic<prot_red.nc;ic++) 
+                    {
+                        prot_red.conf[ic]->occ_old = prot_red.conf[ic]->occ;
+                        prot_red.conf[ic]->occ = (float) prot_red.conf[ic]->counter_accept / (float) (i_cycle * env.monte_niter_cycle);
+                    } 
                         
 
                         rmsd = 0.;
@@ -240,28 +233,15 @@ prot_red.res[r1].IS[r2].totalOCC=0;
                         if (rmsd < env.monte_converge) break;
                     }
                
-}   
-i_cycle++;
-monte2_mc(&prot_red);   
-ENTROPY_CORRECTION_FUNCTION(&prot_red);
-for(r1=0;r1<prot_red.n_res;r1++)
-for(r2=0;r2<prot_red.res[r1].num_of_states;r2++)
-prot_red.res[r1].IS[r2].totalOCC=0;
-				/*
-                double E_chk = 0.;
-                for (i_res=0;i_res<prot_red.n_res;i_res++) {
-                    E_chk += prot_red.res[i_res].conf_w->E_self;
-
-                    ic = prot_red.res[i_res].conf_w->i_conf_prot;
-                    for (j_res=i_res+1;j_res<prot_red.n_res;j_res++) {
-                        jc = prot_red.res[j_res].conf_w->i_conf_prot;
-                        E_chk += pairwise[ic][jc];
-                    }
-                }
-
-                printf("E_state=%10.4f,E_chk=%10.4f,diff=%.3e\n",prot_red.E_state,E_chk,prot_red.E_state-E_chk);
-                */
+                }   
+                i_cycle++;
+                monte2_mc(&prot_red);   
+                ENTROPY_CORRECTION_FUNCTION(&prot_red);
+                for(r1=0;r1<prot_red.n_res;r1++)
+                for(r2=0;r2<prot_red.res[r1].num_of_states;r2++)
+                prot_red.res[r1].IS[r2].totalOCC=0;
             }
+
             fp = fopen(MC_OUT,"a"); fprintf(fp,"   Actual  number of cycles to converge: %5d\n",i_cycle); fclose(fp);
             
             for (ic=0;ic<prot_w.nc;ic++) {
@@ -318,30 +298,30 @@ prot_red.res[r1].IS[r2].totalOCC=0;
             if (prot_red.nc) free(prot_red.conf);
             //printf("free prot_red\n");
             del_prot(&prot_red);
-        }
-        
-        jc = 0;
-        for (ic=0;ic<prot_w.nc;ic++) {
-            while (strcmp(prot_w.conf[ic]->uniqID, prot.conf[jc]->uniqID)) jc++;
-            
-            prot.conf[jc]->occ = 0.;
-            for (j_red=0;j_red<i_red;j_red++) {
-                prot.conf[jc]->occ += prot_w.conf[ic]->occ_table[j_red];
             }
-            prot.conf[jc]->occ = prot.conf[jc]->occ/(float) i_red;
-        }
-        for (ic=0;ic<prot.nc;ic++) {
-            prot.conf[ic]->occ_table[i_titra] = prot.conf[ic]->occ;
-        }
         
-        //printf("free prot_w, occ_table\n");
-        for (ic=0;ic<prot_w.nc;ic++) free(prot_w.conf[ic]->occ_table);
-        //printf("free prot_w, conf\n");
-        if (prot_w.nc) free(prot_w.conf);
-        del_prot(&prot_w);
-        timer_end = time(NULL);
-        fp = fopen(MC_OUT,"a"); fprintf(fp,"Monte Carlo running time: %ld seconds.\n", timer_end-timer_start); fclose(fp);
-        monte_out(prot, i_titra+1);
+            jc = 0;
+            for (ic=0;ic<prot_w.nc;ic++) {
+                while (strcmp(prot_w.conf[ic]->uniqID, prot.conf[jc]->uniqID)) jc++;
+                
+                prot.conf[jc]->occ = 0.;
+                for (j_red=0;j_red<i_red;j_red++) {
+                    prot.conf[jc]->occ += prot_w.conf[ic]->occ_table[j_red];
+                }
+                prot.conf[jc]->occ = prot.conf[jc]->occ/(float) i_red;
+            }
+            for (ic=0;ic<prot.nc;ic++) {
+                prot.conf[ic]->occ_table[i_titra] = prot.conf[ic]->occ;
+            }
+            
+            //printf("free prot_w, occ_table\n");
+            for (ic=0;ic<prot_w.nc;ic++) free(prot_w.conf[ic]->occ_table);
+            //printf("free prot_w, conf\n");
+            if (prot_w.nc) free(prot_w.conf);
+            del_prot(&prot_w);
+            timer_end = time(NULL);
+            fp = fopen(MC_OUT,"a"); fprintf(fp,"Monte Carlo running time: %ld seconds.\n", timer_end-timer_start); fclose(fp);
+            monte_out(prot, i_titra+1);
     }
     
     monte_out(prot, env.titr_steps);
@@ -349,10 +329,8 @@ prot_red.res[r1].IS[r2].totalOCC=0;
 	// curve fitting 
     printf("   Fit titration curves to get pKa/Em ...\n");
     fflush(stdout);
-    if (curve_fitting(prot)) {
-        printf("   Fatal error detected in fitting program.\n");
-        return USERERR;
-    }
+    //curve_fitting(prot,env.titr_steps);
+    
     
     //printf("free prot, occ_table\n");
     for (ic=0;ic<prot.nc;ic++) free(prot.conf[ic]->occ_table);
@@ -458,15 +436,8 @@ PROT monte2_load_conflist(char *fname) {
 }
 
 int monte2_load_pairwise(PROT prot) {
-    int   ic, jc, jc_start;
-    char  fname[MAXCHAR_LINE];
-    FILE  *fp;
-    char  sbuff[MAXCHAR_LINE];
-    char  stemp[MAXCHAR_LINE];
-    int   natom, i_res,i_conf,j_res,j_conf;
-    int   serial;
-    char  uniqID[15];
-    float ele_pair, vdw_pair;
+    int   ic, jc;
+    int   i_res,i_conf,j_res,j_conf;
     int   n_miss_jc = 0,i_miss_ic,j_miss_ic,i_miss_jc,j_miss_jc;
     int   *n_miss_ic = NULL, **miss_ic = NULL, *miss_jc = NULL;
     
@@ -1097,10 +1068,25 @@ double free_unf(PROT prot) {
     return free_eng;
 }
 
+int Nx;       /* number of titration points */
+float *xp2, *yp2;   /* titration points */
+
 int monte_out(PROT prot, int n_titra) {
     FILE *fp;
-    int  i, ic, i_titra, i_res, i_conf;
-    float H, e;
+    int  N_crg, N_res, j, Counter, i, ic, i_titra, i_res;
+    int n_protons, n_electrons, n_crg;
+    int n_protons_grnd, n_electrons_grnd, n_crg_grnd;
+    //float H, e;
+    char line[20];
+    char **head2, **mhead;  // add mhead for mfe header
+    float **ypp2, **ysp2;
+    //int Nx;       /* number of titration points */
+    float *xp2, *yp2;   /* titration points */
+    //float    **occ_table;   /* occ of conformers at various pH/Eh */
+    float *netcrg;
+    float *new_netcrg;
+    float *crg, *protons, *electrons;    /* total net charge at pHs */
+    char sbuff[21];
 
     /* writing occ table */
     if (!(fp = fopen(OCC_TABLE, "w"))) {
@@ -1125,22 +1111,189 @@ int monte_out(PROT prot, int n_titra) {
     }
     fclose(fp);
 
-    /* writing sum_crg */
+
+    
+    Nx = env.titr_steps;
+    
+
+    head2 = (char **) malloc(prot.nc * sizeof(char *));
+    for (i=0; i<prot.nc; i++) head2[i] = (char *) malloc(20 * sizeof(char));
+    shead2 = (char **) malloc(prot.nc * sizeof(char *));
+    for (i=0; i<prot.nc; i++) shead2[i] = (char *) malloc(20 * sizeof(char));
+    mhead = (char **) malloc(prot.nc * sizeof(char *));
+    for (i=0; i<prot.nc; i++) mhead[i] = (char *) malloc(20 * sizeof(char));
+    netcrg = (float *) malloc(prot.nc*sizeof(float));
+    new_netcrg = (float *) malloc(prot.nc*sizeof(float));
+
+    /*--- Assign titration points to an array ---*/
+    xp2 = (float *) malloc(Nx * sizeof(float));      /* store x points */
+    yp2 = (float *) malloc(Nx * sizeof(float));      /* store y points */
+    ypp2 = (float **) malloc(prot.nc * sizeof(float *));
+    for (i=0; i<prot.nc; i++) ypp2[i] = (float *) malloc(Nx * sizeof(float));
+    ysp2 = (float **) malloc(prot.nc * sizeof(float *));
+    for (i=0; i<prot.nc; i++) ysp2[i] = (float *) malloc(Nx * sizeof(float));
+
+    
+    //<<< Group into residues >>>
+    // keep only charged conformers 
+    Counter = 0;
+    
+    // Loop through all the conf in prot
+    for (i=0; i <prot.nc; i++) {
+        if (strchr(prot.conf[i]->uniqID, '+') || strchr(prot.conf[i]->uniqID, '-')) {
+            strncpy(head2[Counter], prot.conf[i]->uniqID, 5); // copies up to 5 characters from the string pointed to, by prot.conf[i]->uniqID to dest head[Counter]
+            head2[Counter][5] = '\0';
+            strncat(head2[Counter], prot.conf[i]->uniqID+5, 8); // appends the string pointed to by prot.conf[i]->uniqID+5 to the end of the string pointed to by head[Counter] up to 8 characters long
+            head2[Counter][11] = '\0';
+            //printf("uniqID %s has charge of %5.2f\n",head[Counter],prot.conf[i]->netcrg);
+            new_netcrg[Counter] = prot.conf[i]->netcrg; // This is the same as of column 5 in head3.lst
+            for (i_titra=0; i_titra<n_titra; i_titra++) {
+                ypp2[Counter][i_titra] = prot.conf[i]->occ_table[i_titra];
+            } 
+            Counter++;
+        }
+    }
+    N_crg = Counter;
+
+    
+    // group residues 
+    // Nx is number of titration points
+    
+    Counter = 0;
+    strncpy(line, head2[0], 11);
+    netcrg[0] = new_netcrg[0];
+    
+    for (i_titra=0; i_titra<n_titra; i_titra++) {
+        ysp2[0][i_titra] = ypp2[0][i_titra];
+    }
+
+    for (i=1; i<N_crg; i++) {
+        if (strncmp(head2[i], line, 11)) {      // not equal, a new residue // compares at most the first 11 bytes of head[i] and line
+            strncpy(shead2[Counter], line, 11); 
+            shead2[Counter][11] = '\0';
+            Counter++;
+            strncpy(line, head2[i], 11);
+            netcrg[Counter] = new_netcrg[i];
+            for (i_titra=0; i_titra<n_titra; i_titra++) ysp2[Counter][i_titra] = ypp2[i][i_titra];
+        }
+        else {                                 // same residue
+            for (i_titra=0; i_titra<n_titra; i_titra++) ysp2[Counter][i_titra] += ypp2[i][i_titra];
+        }
+    }
+
+    strncpy(shead2[Counter], line, 11); 
+    shead2[Counter][11] = '\0';
+    N_res = Counter + 1;
+    
+    crg       = (float *) malloc(Nx * sizeof(float));
+    protons   = (float *) malloc(Nx * sizeof(float));
+    electrons = (float *) malloc(Nx * sizeof(float));
+
+    memset(crg, 0, Nx * sizeof(float));
+    memset(protons, 0, Nx * sizeof(float));
+    memset(electrons, 0, Nx * sizeof(float));
+
+    // writing sum_crg 
     if (!(fp = fopen(TOT_CRG, "w"))) {
         printf("   FATAL: Can not write sumcrg to file \"%s\"\n", OCC_TABLE);fflush(stdout);
         return USERERR;
     }
     if (env.titr_type == 'p') {
-        fprintf(fp, " ph      ");
+        fprintf(fp, " pH       ");
         for (i=0; i<n_titra; i++) fprintf(fp, " %5.1f", env.titr_ph0+i*env.titr_phd);
     }
     else {
-        fprintf(fp, " eh      ");
-        for (i=0; i<n_titra; i++) fprintf(fp, " %5.0f", env.titr_eh0+i*env.titr_ehd);
+        fprintf(fp, " Eh       ");
+        for (i=0; i<n_titra; i++) fprintf(fp, " %5.1f", env.titr_eh0+i*env.titr_ehd);
     }
     fprintf(fp, "\n");
+    
+    for (i_res=0;i_res<N_res; i_res++) {
+        fprintf(fp, "%s", shead2[i_res]);
+        strncpy(sbuff, shead2[i_res], 4); sbuff[4] = '1'; sbuff[5] = '\0';
+        if (param_get( "PROTON", sbuff, "", &n_protons)) n_protons = 0;
+        if (param_get( "ELECTRON", sbuff, "", &n_electrons)) n_electrons = 0;
+        /* n_crg = n_protons-n_electrons; */
+        n_crg = n_protons-n_electrons; 
+        
+        /* number of protons on ground conformer type */
+        strncpy(sbuff, shead2[i_res], 3); sbuff[3] = '0'; sbuff[4] = '1'; sbuff[5] = '\0';
+        if (param_get( "PROTON", sbuff, "", &n_protons_grnd)) n_protons_grnd = 0;
+        if (param_get( "ELECTRON", sbuff, "", &n_electrons_grnd)) n_electrons_grnd = 0;
+        n_crg_grnd = n_protons_grnd - n_electrons_grnd;
+
+        for (i_titra=0; i_titra<n_titra; i_titra++) {
+            //fprintf(fp, " %5.2f", prot.res[i_res].sum_crg[i_titra]);
+            //printf("three: %s %5.2f\n", shead2[i_res],new_netcrg[i_res]);
+            fprintf(fp, " %5.2f", netcrg[i_res]*ysp2[i_res][i_titra]);
+            crg[i_titra] += netcrg[i_res]*ysp2[i_res][i_titra];
+            protons[i_titra] += n_protons*ysp2[i_res][i_titra] + n_protons_grnd*(1.0-ysp2[i_res][i_titra]);
+            electrons[i_titra] += n_electrons*ysp2[i_res][i_titra] + n_electrons_grnd*(1.0-ysp2[i_res][i_titra]);
+        }
+        fprintf(fp, "\n");
+    }
+    
+    
+    fprintf(fp, "----------\n");
+    fprintf(fp, "Tot Protn");
+    for(j=0; j<Nx; j++) {
+        fprintf(fp, " %5.2f", protons[j]);
+    }
+    fprintf(fp, "\n");
+    fprintf(fp, "Tot Elec ");
+    for(j=0; j<Nx; j++) {
+        fprintf(fp, " %5.2f", electrons[j]);
+    }
+    fprintf(fp, "\n");
+    fprintf(fp, "Net crg  ");
+    for(j=0; j<Nx; j++) {
+        fprintf(fp, " %5.2f", crg[j]);
+    }
+    fprintf(fp, "\n");
+    
+    fclose(fp);
+
+    free(crg);
+    free(protons);
+    free(electrons);
+    free(xp2);
+    free(yp2);
+    for (i=0; i<prot.nc; i++) free(ypp2[i]);
+    free(ypp2);
+    for (i=0; i<prot.nc; i++) free(ysp2[i]);
+    free(ysp2);
+    for (i=0; i<prot.nc; i++) free(head2[i]);
+    free(head2);
+    for (i=0; i<prot.nc; i++) free(shead2[i]);
+    free(shead2);
+    return 0;
+}
+
+typedef struct {
+    float pK;
+    float n;
+    float chi2;
+} PKA;
+
+PKA fitting(float guessed_pK, float guessed_n);
+float get_chi2(float v[]);
+extern void dhill(float **p, float *y, int ndim, float ftol, float (*funk)(float []), int *nfunk);
+float *pH, *sumcrg;
+float sumcrg_start,sumcrg_end;
+
+/*
+int curve_fitting(PROT prot, int n_titra) {
+    int i_res, i_conf;
+    FILE *fp;
+    PKA  pka;
+    float guessed_pK, guessed_n;
+    int i_titra;
+    float H, e;
+    pH = malloc(env.titr_steps * sizeof(float));
+
+    /////////
     for (i_res=0;i_res<prot.n_res;i_res++) {
-        /* Check if there's more than one charge state in this residue */
+        // Check if there's more than one charge state in this residue
         if (env.monte_print_nonzero) {
             for (i_conf=1;i_conf<prot.res[i_res].n_conf;i_conf++) {
                 if (fabs(prot.res[i_res].conf[i_conf].H) > 1e-4) break;
@@ -1165,11 +1318,6 @@ int monte_out(PROT prot, int n_titra) {
                 prot.res[i_res].sum_crg[i_titra] += prot.res[i_res].conf[i_conf].occ_table[i_titra] * prot.res[i_res].conf[i_conf].netcrg;
             }
         }
-        fprintf(fp, "%s %c%04d", prot.res[i_res].resName,prot.res[i_res].chainID,prot.res[i_res].resSeq);
-        for (i_titra=0; i_titra<n_titra; i_titra++) {
-            fprintf(fp, " %5.2f", prot.res[i_res].sum_crg[i_titra]);
-        }
-        fprintf(fp, "\n");
     }
     prot.H = malloc(n_titra*sizeof(float));
     memset(prot.H,0,n_titra*sizeof(float));
@@ -1186,92 +1334,15 @@ int monte_out(PROT prot, int n_titra) {
             }
         }
     }
-    
-    fprintf(fp, "\n");
-    for (i_res=0;i_res<prot.n_res;i_res++) {
-        for (i_conf=1;i_conf<prot.res[i_res].n_conf;i_conf++) {
-            if (!strncmp(prot.res[i_res].conf[i_conf].history+2,"DM",2)) break;
-        }
-        if (i_conf >= prot.res[i_res].n_conf) continue;
-
-        fprintf(fp, "%s %c%04d", prot.res[i_res].resName,prot.res[i_res].chainID,prot.res[i_res].resSeq);
-        for (i_titra=0; i_titra<n_titra; i_titra++) {
-            float occ = 1.;
-            for (i_conf=1;i_conf<prot.res[i_res].n_conf;i_conf++) {
-                if (!strncmp(prot.res[i_res].conf[i_conf].history+2,"DM",2)) occ -= prot.res[i_res].conf[i_conf].occ_table[i_titra];
-            }
-            fprintf(fp, " %5.2f", occ);
-        }
-        fprintf(fp, "\n");
-    }
-
-    fprintf(fp, "Tot Protn");
-    for (i_titra=0; i_titra<n_titra; i_titra++) {
-        fprintf(fp, " %5.1f", prot.H[i_titra]);
-    }
-    fprintf(fp, "\n");
-    fprintf(fp, "Tot Elec ");
-    for (i_titra=0; i_titra<n_titra; i_titra++) {
-        fprintf(fp, " %5.1f", prot.e[i_titra]);
-    }
-    fprintf(fp, "\n");
-    fprintf(fp, "Net crg  ");
-    for (i_titra=0; i_titra<n_titra; i_titra++) {
-        fprintf(fp, " %5.1f", prot.sum_crg[i_titra]);
-    }
-    fprintf(fp, "\n");
-    fclose(fp);
-    return 0;
-}
-
-typedef struct {
-    float pK;
-    float n;
-    float chi2;
-} PKA;
-
-PKA fitting(float guessed_pK, float guessed_n);
-float get_chi2(float v[]);
-extern void dhill(float **p, float *y, int ndim, float ftol, float (*funk)(float []), int *nfunk);
-float *pH, *sumcrg;
-float sumcrg_start,sumcrg_end;
-
-int curve_fitting(PROT prot) {
-    int i_res;
-    FILE *fp;
-    PKA  pka;
-    float guessed_pK, guessed_n;
-    int i_titra;
-    pH = malloc(env.titr_steps * sizeof(float));
-    
-    /*
-    for (i_res=0;i_res<prot.n_res;i_res++) {
-        if (!prot.res[i_res].sum_crg) continue;
-        n_plateau = 0;
-        start_number = prot.res[i_res].sum_crg[0];
-        in_plateau = 0;
-        for (i_titra=1; i_titra<env.titr_steps; i_titra++) {
-            if (fabs(prot.res[i_res].sum_crg[i_titra] - start_number) > 0.01) {
-                start_number = prot.res[i_res].sum_crg[i_titra];
-                in_plateau = 0;
-            }
-            else {
-                if (!in_plateau) n_plateau ++;
-                in_plateau = 1;
-            }
-        }
-        //printf("%s %c%04d  n_plateau = %d\n", prot.res[i_res].resName,prot.res[i_res].chainID,prot.res[i_res].resSeq,n_plateau);fflush(stdout);
-    }
-    */
-    
+    //////////
     if (!(fp = fopen(CURVE_FITTING, "w"))) {
         printf("   FATAL: can not write to file \"%s\".", CURVE_FITTING);
         return USERERR;
     }
-    if (env.titr_type == 'p') {   /* pH titration */
+    if (env.titr_type == 'p') {   // pH titration
         fprintf(fp, "Residue            pK   ");
     }
-    else {      /* Eh titration assumed */
+    else {      // Eh titration assumed 
         fprintf(fp, "Residue            Em   ");
     }
     fprintf(fp, "   n(slope)   1000*chi2\n");
@@ -1282,10 +1353,12 @@ int curve_fitting(PROT prot) {
     }
     
     for (i_res=0; i_res<prot.n_res; i_res++) {
+        //printf("%s\n", prot.res[i_res].resName);
+        //printf("%5.2f\n", prot.res[i_res].sum_crg);
         if (!prot.res[i_res].sum_crg) continue;
         sumcrg = prot.res[i_res].sum_crg;
         
-        /* a reasonable guess makes optimization easier */
+        // a reasonable guess makes optimization easier
         guessed_n = 0;
         guessed_pK = (pH[0]+pH[env.titr_steps-1])/2.;
         
@@ -1320,7 +1393,7 @@ int curve_fitting(PROT prot) {
     free(pH);
     
     return 0;
-}
+}*/
 
 PKA fitting(float guessed_pK, float guessed_n) {
     /* initialize the simplex and set up optimization */
@@ -1621,95 +1694,88 @@ void load_states(RES *r)// to load the ionization states
 {
 
 	int i;
-int j=0;
-float x=0.00;
+    int j=0;
+    //float x=0.00;
 
-for(j=0;j<r->num_of_states;j++)
-{
-r->IS[j].totalOCC=0;
-}
-int ret;
-	for(i=1;i< r->n_conf;i++)//loop over all the confermer of this residue
-	{
-ret=exist(r->conf[i],r);
-		if(ret==0)// if this is a new ionizatio state add it to the array of the ionization state
-		{
-			ISTATES s;
-			s.totalOCC=0.0;
-			s.Nconfermers=0;
-			s.Nelectrons=r->conf[i].e;//load the number of electron
-			s.Nprotons=r->conf[i].H; //load the number of protons
-			s.Nconfermers++;//change the number of states for this confermer to one
-			s.totalOCC=r->conf[i].occ;
-			//Console::WriteLine("here");
-			AddToArray(s,r);//add the state to the array
+    for(j=0;j<r->num_of_states;j++)
+    {
+    r->IS[j].totalOCC=0;
+    }
+    int ret;
+    	for(i=1;i< r->n_conf;i++)//loop over all the confermer of this residue
+    	{
+    ret=exist(r->conf[i],r);
+    		if(ret==0)// if this is a new ionizatio state add it to the array of the ionization state
+    		{
+    			ISTATES s;
+    			s.totalOCC=0.0;
+    			s.Nconfermers=0;
+    			s.Nelectrons=r->conf[i].e;//load the number of electron
+    			s.Nprotons=r->conf[i].H; //load the number of protons
+    			s.Nconfermers++;//change the number of states for this confermer to one
+    			s.totalOCC=r->conf[i].occ;
+    			//Console::WriteLine("here");
+    			AddToArray(s,r);//add the state to the array
 
-		}
-              if(ret==2)// if this is a new ionizatio state add it to the array of the ionization state
-		{
-                  ISTATES s;
-			s.totalOCC=0.0;
-                     s.Nelectrons=r->conf[i].e=-1;//load the number of electron
-			s.Nprotons=r->conf[i].H=-1; //load the number of protons
-			s.Nconfermers++;//change the number of states for this confermer to one
-			s.totalOCC=r->conf[i].occ;
-			//Console::WriteLine("here");
-			AddToArray(s,r);//add the state to the array
-//printf("%d",r->conf[i].H);
-              }
-		
-	}
-//for(j=0;j<r->num_of_states;j++)
-//{
-//r->IS[j].totalOCC=0;
-//printf("%f",r->IS[j].totalOCC);
-//printf("%d",r->IS[j].totalOCC);
-//}	
+    		}
+                  if(ret==2)// if this is a new ionizatio state add it to the array of the ionization state
+    		{
+                      ISTATES s;
+    			s.totalOCC=0.0;
+                         s.Nelectrons=r->conf[i].e=-1;//load the number of electron
+    			s.Nprotons=r->conf[i].H=-1; //load the number of protons
+    			s.Nconfermers++;//change the number of states for this confermer to one
+    			s.totalOCC=r->conf[i].occ;
+    			//Console::WriteLine("here");
+    			AddToArray(s,r);//add the state to the array
+    //printf("%d",r->conf[i].H);
+                  }
+    		
+    	}
+    //for(j=0;j<r->num_of_states;j++)
+    //{
+    //r->IS[j].totalOCC=0;
+    //printf("%f",r->IS[j].totalOCC);
+    //printf("%d",r->IS[j].totalOCC);
+    //}	
 }
 ////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-void calculate_correstion(RES *s)
-{
+void calculate_correstion(RES *s){
 	double occ=0;
-int j;
-int i;
-	for( j=0;j<s->num_of_states;j++)
-	{
-	occ=0;
-		for(i=1;i<s->n_conf;i++)
-{
-			if(s->conf[i].e==s->IS[j].Nelectrons&&s->conf[i].H==s->IS[j].Nprotons)
-{
-                          if(s->conf[i].real_occ>.00000000001)
-				occ-=(s->conf[i].real_occ)*log(s->conf[i].real_occ);// use the relation TS=-1.36*sum(Pi)log(Pi))and at this part we only calculate Pi log Pi
-
-//printf("%f",s->conf[i].real_occ);
-}
-}
-	
-	s->IS[j].Cfactor=(occ/1.693);//multiplaying by 1.36 in order to complete the calculations
-
-	//Console::WriteLine("the correction factor for this state is    "+s.IS[j].Cfactor.ToString());
-	}
+    int j;
+    int i;
+    for( j=0;j<s->num_of_states;j++)
+    {
+    	occ=0;
+    	for(i=1;i<s->n_conf;i++){
+        	if(s->conf[i].e==s->IS[j].Nelectrons&&s->conf[i].H==s->IS[j].Nprotons){
+                if(s->conf[i].real_occ>.00000000001)
+                occ-=(s->conf[i].real_occ)*log(s->conf[i].real_occ);// use the relation TS=-1.36*sum(Pi)log(Pi))and at this part we only calculate Pi log Pi
+                //printf("%f",s->conf[i].real_occ);
+            }
+        }
+    	s->IS[j].Cfactor=(occ/1.693);//multiplaying by 1.36 in order to complete the calculations
+    	//Console::WriteLine("the correction factor for this state is    "+s.IS[j].Cfactor.ToString());
+    }
 }
 ////////////////////////////////////////////////////////////////////////////////////////////////////////
 void get_ETS(CONF *f,RES *s)//modifying the E_TS value for each conformer by adding the correction factor
 {
-int i;
+    int i;
 	//float correction=0;
 	for( i=0;i<s->num_of_states;i++)//loop allover the states
 	{
 		if(s->IS[i].Nelectrons==f->e&&s->IS[i].Nprotons==f->H)//check if this confermer belong to this state
-{
-//                     f->E_TS=0;
-//printf("%f",f->E_self);
+        {
+        //  f->E_TS=0;
+        //printf("%f",f->E_self);
 			f->E_TS=s->IS[i].Cfactor;//if so add the correction factor for the energy term
-//printf("%f",f->E_TS);
-                   f->E_self=f->E_self+f->E_TS-f->PE_TS;
-                    f->PE_TS=f->E_TS;
-//printf("%f",f->PE_TS);
-}
-		
+        //printf("%f",f->E_TS);
+            f->E_self=f->E_self+f->E_TS-f->PE_TS;
+            f->PE_TS=f->E_TS;
+        //printf("%f",f->PE_TS);
+        }
 	}
 }
 ////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -1751,27 +1817,27 @@ int i;
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////
 void ENTROPY_CORRECTION_FUNCTION(PROT *p)
 {
-//printf("start");
-int i;
-int j;
-	for( i=0;i<p->n_res;i++)//loop all over the whole protein
-	{
-		//p->res[i].num_of_states=0;
-		//p->res[i].memory_for_states=0;
-		load_states(&p->res[i]);//load the ionization state for each residue
-		loop_residues(p->res[i]);
-		calculate_correstion(&p->res[i]);
-		load_correction_factor(&p->res[i]);//add the correction factor to each confermer
-		free(TheArray);
- //         for(j=0;j<p->res[i].n_conf;j++)
-//{
-//printf(p->res[i].conf[j].uniqID);
-//printf("  ");
-//printf("%f",p->res[i].conf[j].E_TS);
-//}
-TheArray=NULL;
-	}
+    //printf("start");
+    int i;
+    //int j;
+    	for( i=0;i<p->n_res;i++)//loop all over the whole protein
+    	{
+    		//p->res[i].num_of_states=0;
+    		//p->res[i].memory_for_states=0;
+    		load_states(&p->res[i]);//load the ionization state for each residue
+    		loop_residues(p->res[i]);
+    		calculate_correstion(&p->res[i]);
+    		load_correction_factor(&p->res[i]);//add the correction factor to each confermer
+    		free(TheArray);
+            //         for(j=0;j<p->res[i].n_conf;j++)
+            //{
+            //printf(p->res[i].conf[j].uniqID);
+            //printf("  ");
+            //printf("%f",p->res[i].conf[j].E_TS);
+            //}
+            TheArray=NULL;
+    	}
 
-//	free(TheArray);	//free the memory
+    //	free(TheArray);	//free the memory
 }
 
