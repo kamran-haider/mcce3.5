@@ -1,13 +1,29 @@
+#include <glib.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
 #include <math.h>
-#include <ctype.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <unistd.h>
+#include <zlib.h>
 #include "mcce.h"
 
 //set to skip monte carlo, only do MFE (needs pre-existing fort.38)
 int MFE_ONLY = 0;
+
+#define mev2Kcal 0.0235  // to keep consistent with mfe.py, use this constant instead of PH2KCAL/58, just for mfe part
+#define TINY 1.0E-10
+#define NMAX 5000
+#define GET_PSUM for (j=0; j<ndim; j++) {\
+                        for (sum=0.0, i=0; i<mpts; i++) sum += p[i][j];\
+                         psum[j] = sum;}
+#define SWAP(a,b) {swap=(a);(a)=(b);(b)=swap;}
+#define NUNIQS 1000000
+
+
+
 
 /* normal pw is garanteed to be smaller than 2000. When it is is bigger than 5000, it is 
  * represents a value refenced to a clashed pair of conformers.
@@ -56,10 +72,49 @@ struct STAT {
     float b;
     float chi2;
 };
+
 typedef struct  {
     int n;
     int *res;
 } BIGLIST;
+
+typedef struct {
+   //int header;
+   float x;
+   float y;
+   float z;
+   float rad;
+   float crg;
+   //int trailer;
+} UNF;
+
+
+struct OccInRes {
+    char OccInRes_chainID;
+    int  OccInRes_resSeq;
+    int  OccInRes_iConf;
+    char *key_resSeq;
+    float most_occupancy;
+    //struct OccInRes *next;
+};
+
+// create a Linked List
+struct node {
+    int key_resSeq;
+    float the_occupancy;
+    char name[100];
+    char node_chainID;
+    int  node_resSeq;
+    int  node_iConf;
+    struct node *next;
+};
+
+
+struct hash {
+    struct node *head;
+    int count;
+};
+
 /* public variables */
 PROT     prot;
 RES      conflist;
@@ -73,33 +128,32 @@ BIGLIST  *biglist;   /* same length as free residues */
 int      n_free, n_fixed, n_all, n_mfe;
 FILE     *fp;
 float    **occ_table;   
+float    **most_occ_table; 
 char **shead;
-
-
-#define mev2Kcal 0.0235  // to keep consistent with mfe.py, use this constant instead of PH2KCAL/58, just for mfe part
-#define TINY 1.0E-10
-#define NMAX 5000
-#define GET_PSUM for (j=0; j<ndim; j++) {\
-                        for (sum=0.0, i=0; i<mpts; i++) sum += p[i][j];\
-                         psum[j] = sum;}
-#define SWAP(a,b) {swap=(a);(a)=(b);(b)=swap;}
+struct hash *hashTable = NULL;
+int eleCount = 0;
 
 
 
-float postrun_fround3(float x);
-int   postrun_print_mfe(int i_res, float mfeP, FILE *pK_fp,  FILE *res_fp);
-int   postrun_get_mfe(int i_res, int t_point);     
-int   postrun_load_pairwise();
-int   postrun_load_pairwise_fround3();
-int   postrun_load_pairwise_vdw();
-int   postrun_load_occupancy();
-void  postrun_group_confs();
-int   postrun_fitit();
-int   postrun_load_conflist();
+
+
+float  postrun_fround3(float x);
+int    postrun_print_mfe(int i_res, float mfeP, FILE *pK_fp,  FILE *res_fp);
+int    postrun_get_mfe(int i_res, int t_point);     
+int    postrun_load_pairwise();
+int    postrun_load_pairwise_fround3();
+int    postrun_load_pairwise_vdw();
+int    postrun_load_occupancy();
+void   postrun_group_confs();
+int    postrun_fitit();
+int    postrun_load_conflist();
+int    potential_map();
+int    write_amber_siz(FILE *siz); 
 struct STAT postrun_fit(float a, float b);
-float postrun_score(float v[]);
-void postrun_dhill(float **p, float *y, int ndim, float ftol, float (*funk)(float []), int *nfunk);
-
+float  postrun_score(float v[]);
+void   postrun_dhill(float **p, float *y, int ndim, float ftol, float (*funk)(float []), int *nfunk);
+int    most_occ();
+struct OccInRes searchInHash(int key_resSeq);
 
 
 int postrun()
@@ -114,9 +168,8 @@ int postrun()
         printf("   FATAL: error in reading conformer list %s", FN_CONFLIST3);
         return USERERR;
     }
+
     
-
-
     /* load pairwise */
     printf("   Load pairwise interactions ...\n"); fflush(stdout);
     if (postrun_load_pairwise()) {
@@ -126,8 +179,13 @@ int postrun()
     printf("   Done\n\n");
     fflush(stdout);
 
+    
+
     occ_table = (float **) malloc(conflist.n_conf*sizeof(float *));
     for (i=0; i<conflist.n_conf; i++) occ_table[i] = (float *) malloc(env.titr_steps * sizeof(float));
+
+    most_occ_table = (float **) malloc(conflist.n_conf*sizeof(float *));
+    for (i=0; i<conflist.n_conf; i++) most_occ_table[i] = (float *) malloc(env.titr_steps * sizeof(float));
 
     all_res = NULL;
     free_res = NULL;
@@ -136,7 +194,6 @@ int postrun()
     
 
     for (i=0; i<env.titr_steps; i++) {
-        
         postrun_group_confs();
     }
 
@@ -164,9 +221,28 @@ int postrun()
         free(pairwise[i]);
     free(pairwise);
     
+    //printf("   Creating connectivity table...\n"); fflush(stdout);
+    //get_connect12(prot);
+    //printf("   Done\n\n"); fflush(stdout);
+
+
+    if (env.display_potential_map){
+        if (potential_map()) {
+            printf("   Fatal error detected in potential_map().\n");
+            return USERERR;
+        }
+    }
     printf("   Output files:\n");
     printf("      %-16s: pKa or Em from titration curve fitting.\n", CURVE_FITTING);
     printf("      %-16s: Summary of residue charges.\n", "sum_crg.out");
+    if (env.display_potential_map){
+        printf("      %-16s: PDB for the most occupied conformer for each residue.\n", "step5_out.pdb");
+        printf("      %-16s: DelPhi atom radii.\n", "fort.11");
+        printf("      %-16s: DelPhi atom charges.\n", "fort.12");
+        printf("      %-16s: DelPhi parameters.\n", "fort.10");
+        printf("      %-16s: DelPhi potential map.\n", "phimap01.cube");
+        printf("      %-16s: DelPhi dielectric map.\n", "epsmap01.eps");
+    }
     
     return 0;
 }
@@ -260,6 +336,7 @@ int postrun_load_conflist()
             prot.res[ires].iCode = conf_temp.iCode;
         }
     }
+    
     return 0;
 }
 
@@ -398,7 +475,6 @@ int postrun_load_pairwise()
         }
     }
 
-    
     /* free memory */
     free_ematrix(&ematrix);
 
@@ -532,7 +608,7 @@ int postrun_fitit()
         strncat(mhead[i], shead[i]+4, 6); mhead[i][9] = '\0';
     }
     if (env.mfe_flag) {
-        if (env.titr_type == 'p') printf("       Doing mfe at pH %.3f for all the residues\n", env.mfe_point);
+        if (env.titr_type == 'p') printf("       Doing mfe at pH %.2f for all the residues\n", env.mfe_point);
         else printf("       Doing mfe at Eh %.3f for all the residues\n", env.mfe_point);
         if ((env.mfe_point>xp[0] && env.mfe_point>xp[Nx-1]) || (env.mfe_point<xp[0] && env.mfe_point<xp[Nx-1]))
             printf("         MFE: mfe point not in the titration range, do mfe at pKa or Em\n");
@@ -543,11 +619,13 @@ int postrun_fitit()
     for (i=0; i<conflist.n_conf; i++)
         free(pairwise[i]);
     free(pairwise);
-   // load the pairwise interaction again, round the ele and vdw to keep consistent with mfe.py  
+
+    // load the pairwise interaction again, round the ele and vdw to keep consistent with mfe.py  
     if (postrun_load_pairwise_fround3()) {
         printf("   FATAL: mfe pairwise interaction not loaded\n");
         return USERERR;
     }
+
     // load all the conformers of mfe residues
     mfe_res = (RESIDUE *) calloc(n_mfe, sizeof(RESIDUE));
     for (k=0; k<n_mfe; k++) {
@@ -661,7 +739,6 @@ int postrun_fitit()
 
     fclose(fp);
 
-
     /*<<< Loop over y values >>>*/
     if (!(fp = fopen(CURVE_FITTING, "w"))) {
         printf("   FATAL: can not write to file \"%s\".", CURVE_FITTING);
@@ -772,6 +849,7 @@ int postrun_fitit()
         postrun_print_mfe(i, mfePoint, fp, blist_fp); 
     }     
 
+    fclose(fp);
     free(crg);
     free(protons);
     free(electrons);
@@ -786,6 +864,274 @@ int postrun_fitit()
     for (i=0; i<conflist.n_conf; i++) free(shead[i]);
     free(shead);
     
+    return 0;
+}
+
+struct node * createNode(int key_resSeq, char *name, float the_occupancy, char node_chainID, int node_resSeq, int node_iConf) {
+    struct node *newnode;
+    newnode = (struct node *) malloc(sizeof(struct node));
+    newnode->key_resSeq = key_resSeq;
+    newnode->the_occupancy = the_occupancy;
+    newnode->node_chainID = node_chainID;
+    newnode->node_resSeq = node_resSeq;
+    newnode->node_iConf = node_iConf;
+    strcpy(newnode->name, name);
+    newnode->next = NULL;
+    return newnode;
+}
+
+void insertToHash(int key_resSeq, char *name, float the_occupancy, char node_chainID, int node_resSeq) {
+    int hashIndex = key_resSeq % eleCount;
+    int int_confId;
+    char *confId = (char*) malloc(3);
+    strncpy(confId, name+11, 15);
+    int_confId = (int) strtol(confId, (char **)NULL, 10);
+    
+    struct node *newnode = createNode(key_resSeq, name, the_occupancy, node_chainID, node_resSeq, int_confId);
+
+    /* head of list for the bucket with index "hashIndex" */
+    if (!hashTable[hashIndex].head) {
+        hashTable[hashIndex].head = newnode;
+        hashTable[hashIndex].count = 1;
+        return;
+    }
+    /* adding new node to the list */
+    newnode->next = (hashTable[hashIndex].head);
+    /*
+     * update the head of the list and no of
+     * nodes in the current bucket
+     */
+    hashTable[hashIndex].head = newnode;
+    hashTable[hashIndex].count++;
+    return;
+}
+
+struct OccInRes searchInHash(int key_resSeq) {
+    int hashIndex = key_resSeq % eleCount, flag = 0, i = 0;
+    struct node *myNode;
+    myNode = hashTable[hashIndex].head;
+    float max=0.0;
+    char *most_occ_confname;
+    char chainID;
+    int resSeq;
+    int iConf;
+
+    if (!myNode) {
+        //printf("Search element unavailable in hash table\n");
+        return;
+    }
+    while (myNode != NULL) {
+        if (myNode->key_resSeq == key_resSeq) {
+            //printf("VoterID  : %d\n", myNode->key_resSeq);
+            //printf("Name     : %s\n", myNode->name);
+            //printf("Age      : %5.2f\n", myNode->the_occupancy);
+            flag = 1;
+            if (myNode->the_occupancy > max){
+                max = myNode->the_occupancy;
+                most_occ_confname = myNode->name;
+                chainID = myNode->node_chainID;
+                resSeq = myNode->node_resSeq;
+                iConf = myNode->node_iConf;
+                //break;
+            }
+        }
+        myNode = myNode->next;
+    }
+
+    if (!flag)
+        printf("Search element unavailable in hash table\n");
+    
+    struct OccInRes result;
+    result.key_resSeq = most_occ_confname;
+    result.most_occupancy = max;
+    result.OccInRes_chainID = chainID;
+    result.OccInRes_resSeq = resSeq;
+    result.OccInRes_iConf = iConf;
+    //printf("%d %s max: %5.2f\n",key_resSeq, most_occ_confname, max);    
+    return result;
+}
+
+int potential_map(){
+
+    FILE *fp, *fp2, *fp3, *fort11, *fort12, *step5_out, *fort10;
+    char sbuff[MAXCHAR_LINE];
+    int i, j, k,c, iConf, n_retry, ic, a, most_occ_conf_list;
+    int conf_counter;
+    int titration_point;
+    char *tok;
+    float protein_charge;
+    float residue_charge;
+    int occ_value;
+    protein_charge = 0.0;
+    residue_charge = 0.0;
+    n_retry = 0; /* reset delphi failure counter for this conformer */
+    a = 0;
+    c = 0;
+    struct OccInRes result;
+
+    eleCount = conflist.n_conf*sizeof(int *);
+    hashTable = (struct hash *) calloc(eleCount, sizeof(struct hash));
+
+    if (!(fp=fopen(STEP2_OUT, "r"))) {
+       printf(ANSI_COLOR_RED "   FATAL: potential_map(): \"No step 2 output \"%s\".\n" ANSI_COLOR_RESET, STEP2_OUT);
+       return USERERR;
+    }
+    prot = load_pdb(fp);
+    fclose(fp);
+    printf("   Sreaching for the most occupied conformer for each residue in fort.38 at %cH %d\n",env.titr_type,env.column_number);
+    
+    
+    // Writing radii file for delphi
+    fort11 = fopen("fort.11", "w");
+    fprintf(fort11,"!\n");
+    fprintf(fort11,"!   This file was created from MCCE3.5 topology files\n");
+    fprintf(fort11,"!    Radius of all hydrogens with\n");
+    fprintf(fort11,"! Column 1-6: Atom name; column 7-12: Residuename;\n");
+    fprintf(fort11,"! column 13-18: atom size.\n");
+    fprintf(fort11,"atom__res_radius_\n");
+    fprintf(fort11,"1H          1.250\n");
+    fprintf(fort11,"2H          1.250\n");
+    fprintf(fort11,"3H          1.250\n");
+    fprintf(fort11,"H1          1.250\n");
+    fprintf(fort11,"H2          1.250\n");
+    fprintf(fort11,"H3          1.250\n");
+    fprintf(fort11,"OXT         1.480\n");
+    fprintf(fort11,"\n");
+
+
+    fort12 = fopen("fort.12", "w");
+    fprintf(fort12,"!\n");
+    fprintf(fort12,"!   This file was created from MCCE3.5 topology files\n");
+    fprintf(fort12,"!    Radius of all hydrogens with\n");
+    fprintf(fort12,"! Column 1-6: atom name; column 7-9: residue name;\n");
+    fprintf(fort12,"! column 10-12: residue number; column 14: chain name;\n");
+    fprintf(fort12,"! column 15-23: charge magnitude. For example:\n");
+    fprintf(fort12,"! CA    ARG130 B -0.2637 In is a valid format\n");
+    fprintf(fort12,"atom__resnumbc_charge_\n");
+    fprintf(fort12,"1H              0.0906 !!! Hydrogen of CA backbone\n");
+    fprintf(fort12,"2H              0.0906\n");
+    fprintf(fort12,"3H              0.0906\n");
+    fprintf(fort12,"\n");
+    fprintf(fort12,"H1              0.4240 !!! Hydrogen for N-terminal residue\n");
+    fprintf(fort12,"H2              0.4240 !!!\n");
+    fprintf(fort12,"H3              0.4240 !!!\n");
+    fprintf(fort12,"\n");
+
+    step5_out = fopen("step5_out.pdb", "w");
+    
+
+    // group conf. into res.
+    for (i=0; i<conflist.n_conf; i++){
+        insertToHash(conflist.conf[i].resSeq, conflist.conf[i].uniqID, occ_table[i][env.column_number], conflist.conf[i].chainID, conflist.conf[i].resSeq);
+    }
+
+    if (env.only_backbone){
+        for (i=0; i<prot.n_res; i++){
+            iConf =1;
+            result = searchInHash(prot.res[i].resSeq);
+            if (strchr(prot.res[i].conf[0].confName, 'BK')){
+                for (k=0; k<prot.res[i].conf[0].n_atom; k++){
+                    if (strlen(prot.res[i].conf[0].atom[k].name) != 0){
+                        protein_charge += prot.res[i].conf[0].atom[k].crg;
+                        fprintf(fort11,"%-05s %s      %5.2f\n", prot.res[i].conf[0].atom[k].name, prot.res[i].resName, prot.res[i].conf[0].atom[k].rad);
+                        fprintf(fort12,"%-05s %s %d      %5.2f\n", prot.res[i].conf[0].atom[k].name, prot.res[i].resName, prot.res[i].resSeq, prot.res[i].conf[0].atom[k].crg);
+                        fprintf(step5_out, "ATOM %5d %4s %4s %4d    %8.3f%8.3f%8.3f%7.3f%7.3f           %1s\n",c, prot.res[i].conf[0].atom[k].name, prot.res[i].resName, prot.res[i].resSeq, prot.res[i].conf[0].atom[k].xyz.x, prot.res[i].conf[0].atom[k].xyz.y, prot.res[i].conf[0].atom[k].xyz.z, 1.00, 0.00, prot.res[i].conf[0].atom[k].name);
+                    }
+                }
+            }
+            for (j=0; j<prot.res[i].n_conf; j++){            
+                        if (result.OccInRes_chainID == prot.res[i].chainID && result.OccInRes_resSeq == prot.res[i].resSeq && result.OccInRes_iConf == iConf){
+                            for (k=0; k<prot.res[i].conf[j].n_atom; k++){
+                                if (strlen(prot.res[i].conf[j].atom[k].name) != 0){
+                                    fprintf(fort11,"%-05s %s      %5.2f\n", prot.res[i].conf[j].atom[k].name, prot.res[i].resName, prot.res[i].conf[j].atom[k].rad);
+                                    if (c<99999) c++;
+                                    fprintf(step5_out, "ATOM %5d %4s %4s %4d    %8.3f%8.3f%8.3f%7.3f%7.3f           %1s\n",c, prot.res[i].conf[j].atom[k].name, prot.res[i].resName, prot.res[i].resSeq, prot.res[i].conf[j].atom[k].xyz.x, prot.res[i].conf[j].atom[k].xyz.y, prot.res[i].conf[j].atom[k].xyz.z, 1.00, 0.00, prot.res[i].conf[j].atom[k].name); 
+                                }
+                            }
+                        }
+                        iConf++;
+            }
+            fprintf(fort11,"\n");
+            fprintf(fort12,"\n");
+        }
+    }
+    else {
+        for (i=0; i<prot.n_res; i++){
+            iConf =1;
+            result = searchInHash(prot.res[i].resSeq);
+            if (strchr(prot.res[i].conf[0].confName, 'BK')){
+                //printf("%c %c %d %d %d %d %d ====\n", result.OccInRes_chainID, prot.res[i].chainID, result.OccInRes_resSeq, prot.res[i].resSeq, result.OccInRes_iConf, iConf, prot.res[i].conf[0].n_atom);
+                for (k=0; k<prot.res[i].conf[0].n_atom; k++){
+                    if (strlen(prot.res[i].conf[0].atom[k].name) != 0){
+                        fprintf(fort11,"%-05s %s      %5.2f\n", prot.res[i].conf[0].atom[k].name, prot.res[i].resName, prot.res[i].conf[0].atom[k].rad);
+                        fprintf(fort12,"%-05s %s %d      %5.2f\n", prot.res[i].conf[0].atom[k].name, prot.res[i].resName, prot.res[i].resSeq, prot.res[i].conf[0].atom[k].crg);
+                        fprintf(step5_out, "ATOM %5d %4s %4s %4d    %8.3f%8.3f%8.3f%7.3f%7.3f           %1s\n",c, 
+                            prot.res[i].conf[0].atom[k].name, 
+                            prot.res[i].resName, 
+                            prot.res[i].resSeq, 
+                            prot.res[i].conf[0].atom[k].xyz.x, 
+                            prot.res[i].conf[0].atom[k].xyz.y, 
+                            prot.res[i].conf[0].atom[k].xyz.z, 
+                            1.00, 
+                            0.00, 
+                            prot.res[i].conf[0].atom[k].name); 
+                        //printf("%c %c %d %d %d %d %s\n", result.OccInRes_chainID, prot.res[i].chainID, result.OccInRes_resSeq, prot.res[i].resSeq, result.OccInRes_iConf, iConf, prot.res[i].conf[0].atom[k].name);
+                    }
+                }
+            }
+            for (j=0; j<prot.res[i].n_conf; j++){    
+            //printf("%c %c %d %d %d %d \n", result.OccInRes_chainID, prot.res[i].chainID, result.OccInRes_resSeq, prot.res[i].resSeq, result.OccInRes_iConf, iConf);        
+                        if (result.OccInRes_chainID == prot.res[i].chainID && result.OccInRes_resSeq == prot.res[i].resSeq){
+                            if (atoi(prot.res[i].conf[j].confID) == result.OccInRes_iConf){
+                            //printf("testing %d %s %s %s %c %c %d %d %d %d: %f \n",j,prot.res[i].conf[j].confID, prot.res[i].conf[j].confName,  prot.res[i].resName, result.OccInRes_chainID, prot.res[i].chainID, result.OccInRes_resSeq, prot.res[i].resSeq, result.OccInRes_iConf, iConf, result.most_occupancy);
+                                for (k=0; k<prot.res[i].conf[j].n_atom; k++){
+                                    if (strlen(prot.res[i].conf[j].atom[k].name) != 0){
+                                        fprintf(fort11,"%-05s %s      %5.2f\n", prot.res[i].conf[j].atom[k].name, prot.res[i].resName, prot.res[i].conf[j].atom[k].rad);
+                                        protein_charge += prot.res[i].conf[j].atom[k].crg;
+                                        fprintf(fort12,"%-05s %s %d      %5.2f\n", prot.res[i].conf[j].atom[k].name, prot.res[i].resName, prot.res[i].resSeq, prot.res[i].conf[j].atom[k].crg);
+                                        if (c<99999) c++;
+                                        fprintf(step5_out, "ATOM %5d %4s %4s %4d    %8.3f%8.3f%8.3f%7.3f%7.3f           %1s\n",c, prot.res[i].conf[j].atom[k].name, prot.res[i].resName, prot.res[i].resSeq, prot.res[i].conf[j].atom[k].xyz.x, prot.res[i].conf[j].atom[k].xyz.y, prot.res[i].conf[j].atom[k].xyz.z, 1.00, 0.00, prot.res[i].conf[j].atom[k].name); 
+                                        //printf("%c %c %d %d %d %d %d\n", result.OccInRes_chainID, prot.res[i].chainID, result.OccInRes_resSeq, prot.res[i].resSeq, result.OccInRes_iConf, iConf, prot.res[i].conf[j].n_atom);        
+                                    }
+                                }
+                            }
+                        }
+                        iConf++;
+            }
+            fprintf(fort11,"\n");
+            fprintf(fort12,"\n");
+        }
+    }
+
+    printf("   Protein total charge = %5.2f\n", protein_charge);
+    fclose(fort11);
+    fclose(fort12);
+    fclose(step5_out);
+
+    fort10 = fopen("fort.10", "w");
+    //fprintf(fp, "gsize=%d\n", env.grids_delphi);
+    fprintf(fort10, "scale=%.6f\n", (env.grids_per_ang));
+    fprintf(fort10, "perfil=70.0\n");
+    fprintf(fort10, "in(pdb,file=\"step5_out.pdb\")\n");
+    fprintf(fort10, "in(siz,file=\"fort.11\")\n");
+    fprintf(fort10, "in(crg,file=\"fort.12\")\n");
+    fprintf(fort10, "indi=%.1f\n", env.epsilon_prot);
+    fprintf(fort10, "exdi=%.1f\n", env.epsilon_solv);
+    fprintf(fort10, "ionrad=%.1f\n", env.ionrad);
+    fprintf(fort10, "prbrad=%.1f\n", env.radius_probe);
+    fprintf(fort10, "salt=%.2f\n", env.salt);
+    fprintf(fort10, "bndcon=2\n");
+    fprintf(fort10, "out(phi,file=phimap01.cube, format=cube)\n");
+    fprintf(fort10, "out(eps,file=epsmap01.cube)\n");
+    fprintf(fort10, "energy(s,c,g)\n");
+    fclose(fort10);
+    
+    sprintf(sbuff, "%s>delphi%02d.log 2>/dev/null", env.delphi_potential_exe, 1);
+    printf("   Running DelPhi to get potential map\n");
+    system(sbuff);
+
+    printf("   Done\n");
+
     return 0;
 }
 
@@ -1304,8 +1650,6 @@ float postrun_score(float v[])
     return S;
 }
 
-
-
                  
 void postrun_dhill(float **p, float *y, int ndim, float ftol, float (*funk)(float []), int *nfunk)
 {
@@ -1395,8 +1739,8 @@ float postrun_dhtry(float **p, float *y, float *psum, int ndim, float (*funk)(fl
 int postrun_load_occupancy() 
 {
    FILE *fp;
-   int conf_counter, titr_step_counter, j;
-   char *tok;
+   int conf_counter, titr_step_counter, j, titr_step_counter_2;
+   char *tok, *tok_2;
    char sbuff[MAXCHAR_LINE];
    
    fp = fopen(OCC_TABLE, "r");
@@ -1406,27 +1750,45 @@ int postrun_load_occupancy()
 
    conf_counter = 0;
    while (fgets(sbuff, sizeof(sbuff), fp)) {
-      
+      //printf("%s\n", sbuff);
+      //if (strstr(sbuff, "DM") != NULL){
+          //printf("%s\n", sbuff);
+          //tok_2 = strtok (sbuff," \0");
+          //printf("tok:  %d\n", tok);
+          //titr_step_counter_2 = 0;
+          //while (tok_2 != NULL && titr_step_counter_2 < env.titr_steps)
+          //{
+             //tok_2 = strtok (NULL, " \0");
+             //most_occ_table[conf_counter][titr_step_counter_2] = atof(tok_2);
+             //++titr_step_counter_2;
+          //}
+      //}
+
       tok = strtok (sbuff," \0");
       titr_step_counter = 0;
+      titr_step_counter_2 = 0;
       while (tok != NULL && titr_step_counter < env.titr_steps)
       {
          tok = strtok (NULL, " \0");
-         //printf ("%f\n",atof(tok));
+         //printf("%d %f\n",conf_counter,atof(tok));
          //fflush(stdout);
+         //if (strstr(sbuff, "DM") == NULL){
+            //most_occ_table[conf_counter][titr_step_counter_2] = atof(tok);
+            //++titr_step_counter_2;
+         //}
          occ_table[conf_counter][titr_step_counter] = atof(tok);
+         //printf("tok: %5.2f\n", atof(tok));
          ++titr_step_counter;
       }
       ++conf_counter;
    }
+
+   conf_counter = 0;
+   
+
+   
    
    fclose(fp);
    return 0;
 }
-
-
-
-
-
-
 

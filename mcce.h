@@ -6,7 +6,7 @@
 
 /*--- Constants ---*/
 /* Constants for geometry transformation recorder */
-#define VERSION       "MCCE2.5.1"
+#define VERSION       "MCCE3.5"
 #define USERERR -1
 #define MAXCHAR_LINE 320
 #define DUMMY_GDBM   "~temp.dbm.XXXXXX"
@@ -42,6 +42,10 @@
 #define  VDW_ELIMIT_NEAR  999
 #define  VDW_CUTOFF_FAR   10
 #define  VDW_ELIMIT_FAR   0
+
+#define ANSI_COLOR_BLUE    "\x1b[1;34m"
+#define ANSI_COLOR_RED     "\x1b[31m"
+#define ANSI_COLOR_RESET   "\x1b[0m"
 
 /* DATA prototype for Pascal Msc*/
 typedef struct {
@@ -682,6 +686,9 @@ typedef struct {
     float titr_phd;
     float titr_eh0;
     float titr_ehd;
+    // Amended mcce.h ENV with titr_ex0 and titr_exd:: 'extra' titration
+    float titr_ex0;
+    float titr_exd;
     int   titr_steps;
 
     float big_pairwise;
@@ -762,6 +769,10 @@ typedef struct {
     // Step 5 variables 
     char yifan_pka;
     char mfe_pka;
+    char display_potential_map;
+    char only_backbone;
+    int  column_number;
+    char  delphi_potential_exe[256];
     
 } ENV;
 

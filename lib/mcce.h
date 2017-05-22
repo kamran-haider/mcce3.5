@@ -6,7 +6,7 @@
 
 /*--- Constants ---*/
 /* Constants for geometry transformation recorder */
-#define VERSION       "MCCE2.5.1"
+#define VERSION       "MCCE3.5"
 #define USERERR -1
 #define MAXCHAR_LINE 320
 #define DUMMY_GDBM   "~temp.dbm.XXXXXX"
@@ -43,11 +43,16 @@
 #define  VDW_CUTOFF_FAR   10
 #define  VDW_ELIMIT_FAR   0
 
+#define ANSI_COLOR_BLUE    "\x1b[1;34m"
+#define ANSI_COLOR_RED     "\x1b[31m"
+#define ANSI_COLOR_RESET   "\x1b[0m"
+
+
 /* DATA prototype for Pascal Msc*/
 typedef struct {
-        int *res_ids;/*core of the patch*/
-        int *boundary1;/*1st boundary surrounding the core up to a distance of 'b1_param' angstrom*/
-        int *boundary2;/*2nd boundary (fixed) surrounding the 1st boundary up to a distance of 'b2_param' + 'b1_param' angstrom*/
+        int *res_ids;    /*core of the patch*/
+        int *boundary1;  /*1st boundary surrounding the core up to a distance of 'b1_param' angstrom*/
+        int *boundary2;  /*2nd boundary (fixed) surrounding the 1st boundary up to a distance of 'b2_param' + 'b1_param' angstrom*/
         int b1_count;
         int b2_count;
         int res_count;
@@ -671,9 +676,9 @@ typedef struct {
     int   monte_do_energy;
     int   monte_print_nonzero;
 
-    float anneal_temp_start;
-    float anneal_nstep;
-    float anneal_niter_step;
+    int anneal_temp_start; // changed from float to int on Apr 2017 by Salah
+    int anneal_nstep;      // changed from float to int on Apr 2017 by Salah
+    int anneal_niter_step; // changed from float to int on Apr 2017 by Salah
 
     char  titr_type;
     float titr_ph0;
@@ -760,6 +765,10 @@ typedef struct {
     // Step 5 variables 
     char yifan_pka;
     char mfe_pka;
+    char display_potential_map;
+    char only_backbone;
+    int  column_number; 
+    char delphi_potential_exe[256];
 
 
 } ENV;

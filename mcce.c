@@ -60,7 +60,7 @@ int main(int argc, char *argv[])
          printf("Step 4. Yifan Monte Carlo Sampling\n"); fflush(stdout);
          if (monte2()) {db_close(); return USERERR;}
          else printf("Step 4 Done.\n\n");
-       }
+      }
    }
    else printf("Not doing \"Step 4. Monte Carlo Sampling\"\n\n");
    
@@ -69,6 +69,7 @@ int main(int argc, char *argv[])
       if (postrun()) {db_close(); return USERERR;}
       else printf("Step 5 Done.\n\n");
    }
+   else printf("Not doing \"Step 5. Post Monte Carlo\"\n\n");
 
    db_close();
    return 0;
@@ -105,12 +106,14 @@ void welcome()
    printf("|							      |\n");
    printf("|_________________________        ____________________________|\n");
    printf("                          MCCE 3.5                          \n\n");
-   printf("Last Updates:                                              \n");
+   printf("Latest Updates:                                              \n");
    printf("July 2016, Yifan's monte carlo no longer needs step3_out.pdb directory (fixed)\n");
    printf("July 2016, Removed PASCAL COMTE GENETIC ALGORITHM from this version\n");
    printf("Sept 2016, Added charged ligands to sum_crg.out.\n");
    printf("Oct  2016, Changed Yifan MC pK.out output format to match mfe format.\n");
    printf("Oct  2016, Added step 5 that creates pK.out and sum_crg.out.\n");
+   printf("Jan  2017, Added DelPhi potential map.\n\n");
+   printf("Mar  2017, Added DelPhi dielectric map.\n\n");
    fflush(stdout);
 	
 	// Added by Jessica on Nov. 2015
